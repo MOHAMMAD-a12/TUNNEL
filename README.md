@@ -8,7 +8,7 @@ WireGuard is a kernel-integrated VPN with authenticated encryption and low overh
 
 ## Quick Start
 
-The installer supports **Ubuntu 20.04 and 22.04**. Run it as root on **both** servers.
+The installer supports **Ubuntu 20.04, 22.04, and 24.04**. Run it as root on **both** servers.
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/MOHAMMAD-a12/TUNNEL/main/secure-tunnel.sh)
@@ -187,4 +187,4 @@ It does not globally flush firewall rules or force IPv4 forwarding off, because 
 - Keep the WireGuard UDP port free of public forwarding mappings.
 - Keep `/etc/wireguard/wg0.conf` restricted: it contains the local private key and is written with mode `0600`.
 - Review firewall policy, cloud firewall rules, monitoring, logging, and incident-response controls before exposing a production service.
-- Validate behavior in disposable Ubuntu 20.04 and 22.04 environments before production deployment.
+- Validate behavior in disposable Ubuntu 20.04, 22.04, and 24.04 environments before production deployment.

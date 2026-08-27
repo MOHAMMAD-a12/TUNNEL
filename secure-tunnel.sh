@@ -71,8 +71,8 @@ require_ubuntu_version() {
 
     # shellcheck disable=SC1091
     . /etc/os-release
-    if [[ ${ID:-} != "ubuntu" || ( ${VERSION_ID:-} != "20.04" && ${VERSION_ID:-} != "22.04" ) ]]; then
-        error "This script supports Ubuntu 20.04 and 22.04 only (detected: ${PRETTY_NAME:-unknown})."
+    if [[ ${ID:-} != "ubuntu" || ( ${VERSION_ID:-} != "20.04" && ${VERSION_ID:-} != "22.04" && ${VERSION_ID:-} != "24.04" ) ]]; then
+        error "This script supports Ubuntu 20.04, 22.04, and 24.04 only (detected: ${PRETTY_NAME:-unknown})."
         exit 1
     fi
 }
