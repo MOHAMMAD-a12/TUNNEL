@@ -1,79 +1,111 @@
 # Secure WireGuard Tunnel
 
-This repository contains an interactive installer for a **private, authenticated WireGuard tunnel between two Ubuntu hosts you administer**. It provides narrowly scoped TCP/UDP forwarding from an **Iran Server** (the public ingress host) to services running on a **Foreign Server**.
+An interactive installer for a **private, authenticated WireGuard tunnel between two Ubuntu servers you administer**. It forwards only explicitly selected TCP/UDP ports from the **Iran Server** (public ingress) to services hosted directly on the **Foreign Server**.
 
-> **Scope and authorization:** Use this only for infrastructure that you own or are authorized to manage, and comply with applicable law, provider policies, and organizational change-control requirements. This project intentionally does **not** provide DPI evasion, protocol obfuscation, or guidance for circumventing third-party or government network controls.
+> **Authorized-use boundary:** Use this only on infrastructure you own or are authorized to manage, in accordance with applicable law, provider policies, and organizational change-control requirements. This project does not implement DPI evasion, protocol obfuscation, or circumvention of third-party or government network controls.
 
-WireGuard is used instead of GOST, Xray, or V2Ray because it is a widely supported, kernel-integrated VPN with authenticated encryption and low overhead on Ubuntu. It is appropriate for a conventional, secure site-to-site tunnel.
+WireGuard is a kernel-integrated VPN with authenticated encryption and low overhead. This installer intentionally limits its scope to an authorized, conventional service-forwarding tunnel—there is no default route, arbitrary egress forwarding, or generic proxy behavior.
 
-## What the installer does
+## Quick Start
 
-- Supports **Ubuntu 20.04 and 22.04** only.
-- Installs `wireguard`, `iptables`, and `iptables-persistent` when needed.
-- Creates an authenticated `/30` WireGuard link using interface `wg0`.
-- Enables IPv4 forwarding in `/etc/sysctl.d/99-secure-tunnel.conf`.
-- On the Iran host, DNATs only the TCP/UDP public ports explicitly selected during setup to the Foreign host's WireGuard address.
-- Masquerades only those DNATed tunnel flows, ensuring reply traffic traverses the tunnel.
-- On the Foreign host, permits only explicitly selected service ports received from the WireGuard peer.
-- Saves the managed firewall rules through `netfilter-persistent`, so they survive reboot.
-- Stores non-secret deployment metadata in `/etc/secure-tunnel/manifest.conf` and supports status and clean removal.
-
-The installer does **not** flush existing iptables rules or set generic `DROP` policies. It rejects an active UFW configuration rather than mixing UFW with `iptables-persistent`; decide on one firewall manager under your normal operations process. It also keeps the host's WireGuard private identity in `/etc/secure-tunnel/identity.key` (mode `0600`) so both public keys can be exchanged before either endpoint applies its tunnel configuration.
-
-## Prerequisites
-
-Before running the script:
-
-1. Have root or `sudo` access to both servers.
-2. Assign each server a stable, reachable public IPv4 address (or provide a suitable reachable endpoint/NAT mapping).
-3. Choose an unused UDP port for WireGuard on **both** hosts, such as `51820`.
-4. Allow the selected WireGuard UDP port through cloud security groups, upstream firewalls, and host firewalls on both servers.
-5. On the Iran host only, allow the specific public service ports that you intend to expose. Do **not** open a wider range than necessary.
-6. Know the Foreign service ports. Services on the Foreign host must listen on the Foreign host's WireGuard address or another non-loopback address; a service bound only to `127.0.0.1` will not accept these forwarded connections.
-
-## Deployment order
-
-WireGuard peers authenticate using public keys. The installer generates a unique key pair locally and never asks for or transmits a peer's private key. To exchange the public keys cleanly, use this order.
-
-### 1. Place the files on both hosts
+The installer supports **Ubuntu 20.04 and 22.04**. Run it as root on **both** servers.
 
 ```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/MOHAMMAD-a12/TUNNEL/main/secure-tunnel.sh)
+```
+
+Alternatively, download, inspect, and run a local copy:
+
+```bash
+curl -fLO https://raw.githubusercontent.com/MOHAMMAD-a12/TUNNEL/main/secure-tunnel.sh
 chmod 700 secure-tunnel.sh
 sudo ./secure-tunnel.sh
 ```
 
-If you copy the script from a workstation, first validate its checksum through your organization’s normal software-distribution process.
+Before using either command, review the script under your organization’s software-distribution and change-control process. If your policy requires it, pin a reviewed commit instead of using `main`:
 
-### 2. Initialize the Foreign Server
+```bash
+# Replace <COMMIT_SHA> with a reviewed commit identifier.
+curl -fLO https://raw.githubusercontent.com/MOHAMMAD-a12/TUNNEL/<COMMIT_SHA>/secure-tunnel.sh
+chmod 700 secure-tunnel.sh
+sudo ./secure-tunnel.sh
+```
 
-1. Choose **Install or update a managed tunnel**.
+During setup, the script displays a local WireGuard public key and asks for the other server’s public key. It stores the local private identity at `/etc/secure-tunnel/identity.key` with mode `0600`; it never requests, displays, or transfers a peer private key.
+
+After initial setup, run the command again to open the lifecycle menu:
+
+```bash
+sudo ./secure-tunnel.sh
+```
+
+The menu provides these actions:
+
+- **Install or update a managed tunnel** — configures WireGuard and the dedicated firewall chains.
+- **Show status** — displays non-secret deployment metadata, interface state, forwarding state, and managed rules.
+- **Uninstall this managed tunnel** — removes only installer-managed configuration after typed `REMOVE` confirmation.
+
+## Deployment Prerequisites
+
+Before installation:
+
+1. Have root or `sudo` access to both Ubuntu servers.
+2. Assign both servers stable, reachable public IPv4 addresses, or provide suitable reachable NAT mappings.
+3. Choose an unused WireGuard UDP port on both hosts; `51820` is the default.
+4. Allow that WireGuard UDP port through cloud security groups, upstream firewalls, and host firewalls on both servers.
+5. On the Iran host, permit only the public TCP/UDP ports you intend to forward.
+6. Ensure services on the Foreign host listen on its WireGuard address or another non-loopback address. A service listening only on `127.0.0.1` cannot receive the forwarded connection.
+7. Do not use the example prompt value `203.0.113.10`; enter the real, reachable peer endpoint.
+
+## Installation Workflow
+
+WireGuard peers authenticate with public keys. Install in four steps to exchange those keys without applying a partial tunnel configuration.
+
+### 1. Initialize the Foreign Server
+
+1. Run the installer and choose **Install or update a managed tunnel**.
 2. Select **Foreign Server**.
-3. Enter the Iran server's reachable public IPv4 address.
-4. Select the same WireGuard UDP port you will use at both ends.
-5. Use the role defaults unless you have a documented reason to choose another `/30`:
+3. Enter the Iran server’s reachable public IPv4 address.
+4. Choose the WireGuard UDP port. It must match the port configured on Iran.
+5. Use the default tunnel addresses unless another documented `/30` is required:
    - Iran: `10.77.0.1`
    - Foreign: `10.77.0.2`
-6. The script generates and displays the **Foreign public key before prompting for the peer key**. Copy it, then press **Enter** at the peer-key prompt. Its private identity remains safely stored at `/etc/secure-tunnel/identity.key` (mode `0600`) for the final configuration run.
+6. Copy the displayed **Foreign public key**, then press **Enter** at the peer-key prompt.
 
-### 3. Initialize the Iran Server
+The script stores the Foreign private identity locally and exits without creating `wg0.conf`, enabling forwarding, or applying firewall changes.
 
-1. Run the installer and choose **Install or update**, then **Iran Server**.
-2. Enter the Foreign server's reachable public IPv4 address and the same WireGuard UDP port.
-3. Keep the complementary `/30` values (`10.77.0.1` local, `10.77.0.2` peer) unless using a documented alternative.
-4. Copy the Iran public key displayed before the peer-key prompt, then press **Enter** at that prompt. As on Foreign, this preserves a local private identity without applying partial tunnel or firewall configuration.
+### 2. Initialize the Iran Server
 
-### 4. Configure both servers with the verified peer key
+1. Run the installer and choose **Install or update a managed tunnel**.
+2. Select **Iran Server**.
+3. Enter the Foreign server’s reachable public IPv4 address and the same WireGuard UDP port.
+4. Keep `10.77.0.1` as the Iran address and `10.77.0.2` as its peer unless using a documented alternative.
+5. Copy the displayed **Iran public key**, then press **Enter** at the peer-key prompt.
 
-Run the installer again on **each** server and choose its respective role. Enter the other server's public key, then select the matching allowed services:
+### 3. Configure Iran With the Foreign Public Key
 
-- On **Iran**, add each public-to-Foreign mapping. For example, `tcp` public `443` to Foreign service `443` sends connections to `10.77.0.2:443`.
-- On **Foreign**, add the corresponding `tcp` service port `443`, so only the authenticated Iran WireGuard peer can reach it.
+1. Run the installer again on Iran and select **Iran Server**.
+2. Enter the Foreign public key collected in step 1.
+3. Add each public-to-Foreign mapping:
+   - Protocol: `tcp` or `udp`
+   - Public port: the port exposed on Iran
+   - Foreign service port: the corresponding service port on Foreign
 
-Avoid using the WireGuard UDP port itself (for example UDP `51820`) as a public service-forwarding port.
+For example, mapping TCP port `443` to Foreign port `443` sends connections from `IRAN_PUBLIC_IP:443` to `10.77.0.2:443` through WireGuard.
 
-> The connection can establish only after each endpoint has the other's real public key. Exchange public keys using an authenticated channel, such as your established administrative access or configuration-management system.
+> The installer rejects a UDP forward mapping that collides with its WireGuard listener port—for example, UDP `51820` when WireGuard uses port `51820`.
 
-## Example topology
+### 4. Configure Foreign With the Iran Public Key
+
+1. Run the installer again on Foreign and select **Foreign Server**.
+2. Enter the Iran public key collected in step 2.
+3. Add the matching protocol and service ports configured as destinations on Iran.
+
+For the TCP/443 example, authorize `tcp` port `443` on Foreign. The installer permits that port only from the authenticated Iran WireGuard peer.
+
+Exchange public keys through an authenticated administrative channel or your configuration-management system. Do not share private keys.
+
+## Example Topology
 
 ```text
 Client
@@ -85,11 +117,23 @@ public interface -> DNAT + MASQUERADE -> WireGuard wg0 -> 10.77.0.2:443
                     encrypted, authenticated tunnel
 ```
 
-The Foreign host sees the forwarded source as the Iran host's WireGuard address. This is deliberate: it ensures the reply takes the tunnel back to the Iran host. This release forwards to services that run directly on the Foreign host; it does not route onward to arbitrary destination networks.
+The Foreign host receives the forwarded source as Iran’s WireGuard address. This deliberate source NAT ensures response traffic returns across the authenticated tunnel. The installer forwards only to services running directly on the Foreign server; it does not route onward to arbitrary destination networks.
 
-## Verify the deployment
+## What the Installer Configures
 
-Run these as root on both hosts after both peer keys are configured:
+- `wireguard`, `iptables`, and `iptables-persistent` when their required commands are absent.
+- A WireGuard `/30` interface on `wg0` with one authenticated peer and `PersistentKeepalive = 25`.
+- IPv4 forwarding using `/etc/sysctl.d/99-secure-tunnel.conf`.
+- On Iran: dedicated `iptables` DNAT, forward, return-path, and scoped masquerade rules for selected public mappings.
+- On Foreign: dedicated `iptables` rules that allow only selected service ports from the Iran tunnel peer.
+- Firewall persistence via `netfilter-persistent`.
+- Non-secret deployment state in `/etc/secure-tunnel/manifest.conf` with mode `0600`.
+
+The installer does **not** flush existing iptables rules, change generic firewall policies, or use `0.0.0.0/0` as a WireGuard peer route. It refuses to run when UFW is active to avoid mixing UFW with `iptables-persistent`. It also refuses to overwrite an existing `wg0.conf` that is not installer-managed.
+
+## Verify the Deployment
+
+After both endpoints are configured, run these commands as root on both servers:
 
 ```bash
 systemctl status wg-quick@wg0 --no-pager
@@ -97,17 +141,19 @@ wg show wg0
 sysctl net.ipv4.ip_forward
 ```
 
-A functioning tunnel shows both a peer entry and a recent `latest handshake` after traffic is generated. Test the private tunnel first:
+A working tunnel shows a peer and a recent `latest handshake` after traffic is generated. Test the private service path first:
 
 ```bash
-# From Iran, test a known TCP service on Foreign.
+# On Iran: test a known TCP service hosted by Foreign.
 nc -vz 10.77.0.2 443
 
-# From an independent test client, test the public ingress on Iran.
+# From an independent client: test Iran’s public forwarding port.
 nc -vz <IRAN_PUBLIC_IP> 443
 ```
 
-For UDP, use an application-level test appropriate to the service because a UDP port scan alone does not prove end-to-end delivery. On the Iran host, inspect only the chains managed by this installer:
+For UDP, use an application-level check appropriate to the service; a UDP port scan does not establish end-to-end delivery.
+
+On Iran, inspect only the chains created by this installer:
 
 ```bash
 iptables -S SECURE_TUNNEL_INPUT
@@ -116,24 +162,29 @@ iptables -t nat -S SECURE_TUNNEL_PRE
 iptables -t nat -S SECURE_TUNNEL_POST
 ```
 
-After a maintenance reboot, re-run `wg show wg0` and the same controlled connectivity tests. `wg-quick@wg0` and `netfilter-persistent` are enabled by the installer.
+After a maintenance reboot, repeat `wg show wg0` and the controlled service checks. The installer enables both `wg-quick@wg0` and `netfilter-persistent`.
 
-## Day-two operations
+## Updates and Removal
 
-Run the installer again as root to display the lifecycle menu:
+### Update an existing deployment
 
-```bash
-sudo ./secure-tunnel.sh
-```
+Run the installer, select **Install or update**, and re-enter the local role, peer details, and desired mappings. It rebuilds only its dedicated firewall chains, avoiding duplicate installer-managed rules.
 
-- **Install or update**: updates the local peer configuration and replaces only the dedicated managed iptables chains, avoiding duplicate rules.
-- **Show status**: displays the non-secret manifest, interface status, forwarding sysctl value, and managed firewall chains.
-- **Uninstall**: requires the exact confirmation word `REMOVE`, then removes only this script's WireGuard configuration, sysctl drop-in, manifest, and dedicated iptables chains. It does not globally flush firewall rules or force IPv4 forwarding off, because other authorized workloads might rely on it.
+### Remove the managed deployment
 
-## Operational notes
+Run the installer, select **Uninstall this managed tunnel**, and type `REMOVE` when prompted. The installer removes only:
 
-- Keep UDP `51820` free of public port-forward mappings; reserve a different UDP port for an application if WireGuard uses 51820.
-- The script assumes the Foreign destination service is hosted directly on the Foreign server. It does not create a default route or forward arbitrary Internet traffic through the Foreign server.
-- Do not use the `203.0.113.10` prompt placeholder as an actual address. Replace it with the real, reachable peer endpoint.
-- Keep `/etc/wireguard/wg0.conf` restricted: it contains the local private key and is created with mode `0600`.
-- Review iptables, cloud-firewall, monitoring, logging, and incident-response controls according to your environment’s policy before exposing any production service.
+- `/etc/wireguard/wg0.conf`
+- `/etc/sysctl.d/99-secure-tunnel.conf`
+- `/etc/secure-tunnel/manifest.conf`
+- `/etc/secure-tunnel/identity.key`
+- Dedicated `SECURE_TUNNEL_*` `iptables` chains and hooks
+
+It does not globally flush firewall rules or force IPv4 forwarding off, because another authorized workload may depend on the host’s current setting.
+
+## Operational Notes
+
+- Keep the WireGuard UDP port free of public forwarding mappings.
+- Keep `/etc/wireguard/wg0.conf` restricted: it contains the local private key and is written with mode `0600`.
+- Review firewall policy, cloud firewall rules, monitoring, logging, and incident-response controls before exposing a production service.
+- Validate behavior in disposable Ubuntu 20.04 and 22.04 environments before production deployment.
