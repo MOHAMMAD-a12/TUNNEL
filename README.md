@@ -188,3 +188,151 @@ It does not globally flush firewall rules or force IPv4 forwarding off, because 
 - Keep `/etc/wireguard/wg0.conf` restricted: it contains the local private key and is written with mode `0600`.
 - Review firewall policy, cloud firewall rules, monitoring, logging, and incident-response controls before exposing a production service.
 - Validate behavior in disposable Ubuntu 20.04, 22.04, and 24.04 environments before production deployment.
+
+# Xray Private TCP Service Tunnel
+
+An interactive installer for a **narrow, authenticated Xray-based TCP service tunnel between two Ubuntu servers you administer**. It forwards only explicitly selected TCP ports from the **Iran Server** (public ingress) to services hosted directly on the **Foreign Server**.
+
+> **Authorized-use boundary:** Use this only on infrastructure you own or are authorized to manage, in accordance with applicable law, provider policies, and organizational change-control requirements. This project does not implement DPI evasion, protocol obfuscation, or circumvention of third-party or government network controls.
+>
+> This installer is **not** a generic proxy. There is no default route, no SOCKS/HTTP proxy, and no arbitrary outbound relay. Each Foreign-side Shadowsocks listener delivers only to the single local service port you select during setup.
+
+Unlike the WireGuard installer, this path uses one authenticated **Shadowsocks (aes-256-gcm)** transport per mapping. Iran runs a `tunnel` inbound on each public port; Foreign runs a matching Shadowsocks inbound whose `freedom` outbound is pinned to its one destination service port. Choose one installer per public port, not both.
+
+## Xray Quick Start
+
+The installer supports **Ubuntu 20.04, 22.04, and 24.04**. Run it as root on **both** servers.
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/MOHAMMAD-a12/TUNNEL/main/xray-service-tunnel.sh)
+```
+
+Alternatively, download, inspect, and run a local copy:
+
+```bash
+curl -fLO https://raw.githubusercontent.com/MOHAMMAD-a12/TUNNEL/main/xray-service-tunnel.sh
+chmod 700 xray-service-tunnel.sh
+sudo ./xray-service-tunnel.sh
+```
+
+Before using either command, review the script under your organization’s software-distribution and change-control process. If your policy requires it, pin a reviewed commit instead of using `main`:
+
+```bash
+# Replace <COMMIT_SHA> with a reviewed commit identifier.
+curl -fLO https://raw.githubusercontent.com/MOHAMMAD-a12/TUNNEL/<COMMIT_SHA>/xray-service-tunnel.sh
+chmod 700 xray-service-tunnel.sh
+sudo ./xray-service-tunnel.sh
+```
+
+During setup the script downloads the official Xray-core release for your architecture, verifies its `SHA2-256` against the upstream `.dgst` file, and refuses to proceed on mismatch. It stores generated per-mapping secrets only in `0600` config/state files and never prints a private key.
+
+After initial setup, run the command again to open the lifecycle menu:
+
+```bash
+sudo ./xray-service-tunnel.sh
+```
+
+The menu provides these actions:
+
+- **Install or update a managed tunnel** — installs Xray, writes the dedicated JSON config, and applies the scoped firewall chain.
+- **Show status** — displays non-secret deployment metadata, service state, Xray version, and managed rules.
+- **Uninstall this managed tunnel** — removes only installer-managed configuration after typed `REMOVE` confirmation.
+
+## Xray Deployment Prerequisites
+
+Before installation:
+
+1. Have root or `sudo` access to both Ubuntu servers.
+2. Assign both servers stable, reachable public IPv4 addresses, or provide suitable reachable NAT mappings.
+3. On the Iran host, permit only the public TCP ports you intend to forward.
+4. Ensure the target services on the Foreign host listen on `127.0.0.1` (or another non-loopback address Xray can reach); each is delivered only to its selected local port.
+5. Do not reuse the same public port with the WireGuard installer on the same host.
+
+## Xray Installation Workflow
+
+### 1. Initialize the Iran Server
+
+1. Run the installer and choose **Install or update a managed tunnel**.
+2. Select **Iran Server**.
+3. Enter the Foreign server’s reachable public IPv4 address and this host’s own public IP.
+4. Add each TCP mapping:
+   - **Public listening port** — the port exposed on Iran.
+   - **Foreign service port** — the corresponding service port on Foreign.
+5. For each mapping the script prints a generated **Foreign-side Shadowsocks listen port** and **shared secret**. Copy these to the Foreign host.
+
+The script builds and starts the Iran service immediately; it does not need the Foreign secret to run, but traffic will flow only after Foreign is configured.
+
+### 2. Initialize the Foreign Server
+
+1. Run the installer and choose **Install or update a managed tunnel**.
+2. Select **Foreign Server**.
+3. Enter the Iran server’s reachable public IPv4 address and this host’s own public IP.
+4. For each mapping, enter the **Shadowsocks listen port** and **shared secret** shown by Iran, plus the **local Foreign service port** the listener should deliver to.
+
+Foreign’s firewall allows that Shadowsocks listener only from the Iran public endpoint, and the `freedom` outbound redirects strictly to the mapped local service port.
+
+## Example Topology
+
+```text
+Client
+  |
+  | TCP to Iran public IP:public-port
+  v
+Iran Server (public ingress)              Foreign Server (service host)
+tunnel inbound -> Shadowsocks client --> encrypted, authenticated tunnel --> Shadowsocks server -> freedom -> 127.0.0.1:service-port
+```
+
+## What the Xray Installer Configures
+
+- Xray-core from the official GitHub release, verified by upstream `SHA2-256` checksum.
+- A dedicated JSON config at `/etc/xray-service-tunnel/config.json` with mode `0600`.
+- A dedicated systemd unit `xray-service-tunnel.service` running as the unprivileged `xray-service-tunnel` user.
+- A dedicated `XRAY_SERVICE_TUNNEL_INPUT` `iptables` chain hooked into `INPUT` with unique comment markers.
+- Non-secret deployment state in `/etc/xray-service-tunnel/manifest.conf` with mode `0600`.
+- Firewall persistence via `netfilter-persistent`.
+
+The installer does **not** flush existing iptables rules, change generic firewall policies, or create a default route. It refuses to overwrite an existing Xray config or systemd unit not owned by this installer.
+
+## Verify the Xray Deployment
+
+After both endpoints are configured, run these commands as root:
+
+```bash
+systemctl status xray-service-tunnel --no-pager
+/usr/local/bin/xray-service-tunnel version
+iptables -S XRAY_SERVICE_TUNNEL_INPUT
+```
+
+Test each selected public TCP port from an independent client:
+
+```bash
+# From an independent client: test Iran’s public forwarding port.
+nc -vz <IRAN_PUBLIC_IP> <public_port>
+```
+
+Confirm the Foreign service receives the connection on its mapped local port. Unselected public ports are not opened, and no generic proxy listener is exposed.
+
+## Xray Updates and Removal
+
+### Update an existing deployment
+
+Run the installer, select **Install or update**, and re-enter the role, peer details, and desired mappings. It rebuilds only its dedicated config and firewall chain.
+
+### Remove the managed deployment
+
+Run the installer, select **Uninstall this managed tunnel**, and type `REMOVE` when prompted. The installer removes only:
+
+- `/etc/xray-service-tunnel/config.json`
+- `/etc/xray-service-tunnel/manifest.conf`
+- `/usr/local/lib/xray-service-tunnel/` (the Xray binary and assets)
+- `/usr/local/bin/xray-service-tunnel`
+- `/etc/systemd/system/xray-service-tunnel.service`
+- The dedicated `XRAY_SERVICE_TUNNEL_INPUT` `iptables` chain and hook
+
+It does not delete an unrelated system Xray installation, flush unrelated firewall rules, or change other services.
+
+## Xray Operational Notes
+
+- Keep generated Shadowsocks secrets restricted; they authenticate and encrypt each mapping.
+- Review firewall policy, cloud firewall rules, monitoring, logging, and incident-response controls before exposing a production service.
+- Validate behavior in disposable Ubuntu 20.04, 22.04, and 24.04 environments before production deployment.
