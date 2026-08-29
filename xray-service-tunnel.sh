@@ -90,7 +90,6 @@ ensure_dependencies() {
     require_command apt-get
     require_command systemctl
     require_command curl
-    require_command unzip
 
     if ufw_is_active; then
         error "UFW is active. This installer uses iptables-persistent and will not mix two firewall managers."
@@ -100,7 +99,7 @@ ensure_dependencies() {
 
     local -a missing_commands=()
     local command_name
-    for command_name in jq iptables iptables-save netfilter-persistent; do
+    for command_name in jq iptables iptables-save netfilter-persistent unzip; do
         command -v "$command_name" >/dev/null 2>&1 || missing_commands+=("$command_name")
     done
 
@@ -108,7 +107,7 @@ ensure_dependencies() {
         return
     fi
 
-    info "Installing required packages: jq, iptables, iptables-persistent"
+    info "Installing required packages: jq, iptables, iptables-persistent, unzip"
     export DEBIAN_FRONTEND=noninteractive
     apt-get update
     if command -v debconf-set-selections >/dev/null 2>&1; then
@@ -117,8 +116,8 @@ ensure_dependencies() {
             'iptables-persistent iptables-persistent/autosave_v6 boolean false' \
             | debconf-set-selections
     fi
-    apt-get install -y jq iptables iptables-persistent
-    for command_name in jq iptables iptables-save netfilter-persistent; do
+    apt-get install -y jq iptables iptables-persistent unzip
+    for command_name in jq iptables iptables-save netfilter-persistent unzip; do
         require_command "$command_name"
     done
 }
